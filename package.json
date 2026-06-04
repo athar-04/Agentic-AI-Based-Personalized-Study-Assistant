@@ -1,0 +1,37 @@
+{
+  "name": "agentic-ai-study-assistant",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Agentic AI Study Assistant - Production-grade multi-agent educational platform",
+  "author": "Mohammed Athar",
+  "license": "MIT",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "db:migrate": "turbo run db:migrate",
+    "db:generate": "turbo run db:generate",
+    "db:studio": "cd packages/database && npx prisma studio",
+    "docker:up": "docker compose -f infrastructure/docker-compose.yml up -d",
+    "docker:down": "docker compose -f infrastructure/docker-compose.yml down",
+    "docker:build": "docker compose -f infrastructure/docker-compose.yml build",
+    "docker:logs": "docker compose -f infrastructure/docker-compose.yml logs -f"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "packageManager": "npm@10.9.2"
+}

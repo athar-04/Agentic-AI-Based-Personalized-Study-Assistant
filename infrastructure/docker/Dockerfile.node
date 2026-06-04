@@ -1,0 +1,51 @@
+# Node.js microservice Dockerfile (multi-stage, production-ready)
+FROM node:20-alpine AS base
+RUN apk add --no-cache libc6-compat openssl
+WORKDIR /app
+
+# ── Install dependencies ──────────────────────────────
+FROM base AS deps
+COPY . .
+ARG SERVICE_PATH
+RUN npm install --workspace=${SERVICE_PATH} --include-workspace-root --legacy-peer-deps --no-audit --no-fund
+
+# ── Build ─────────────────────────────────────────────
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+ARG SERVICE_PATH
+RUN npx prisma@5.22.0 generate --schema=packages/database/prisma/schema.prisma
+# Build internal workspace packages first (so @agentic/auth and @agentic/shared dist/ exists)
+RUN npm run build --workspace=packages/shared
+RUN npm run build --workspace=packages/auth
+RUN npm run build --workspace=${SERVICE_PATH}
+
+# ── Production image ──────────────────────────────────
+FROM base AS runner
+ARG SERVICE_PATH
+WORKDIR /app
+ENV NODE_ENV=production
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 appuser
+
+ENV SERVICE_PATH=${SERVICE_PATH}
+
+# Create service directory and ensure appuser owns it so Winston can create a logs folder
+RUN mkdir -p /app/${SERVICE_PATH} /app/packages/auth /app/packages/shared \
+    && chown -R appuser:nodejs /app/${SERVICE_PATH} /app/packages
+
+COPY --from=builder --chown=appuser:nodejs /app/${SERVICE_PATH}/dist ./${SERVICE_PATH}/dist
+COPY --from=builder --chown=appuser:nodejs /app/${SERVICE_PATH}/package.json ./${SERVICE_PATH}/package.json
+# Copy compiled internal packages so workspace symlinks resolve at runtime
+COPY --from=builder --chown=appuser:nodejs /app/packages/auth/dist ./packages/auth/dist
+COPY --from=builder --chown=appuser:nodejs /app/packages/auth/package.json ./packages/auth/package.json
+COPY --from=builder --chown=appuser:nodejs /app/packages/shared/dist ./packages/shared/dist
+COPY --from=builder --chown=appuser:nodejs /app/packages/shared/package.json ./packages/shared/package.json
+COPY --from=builder --chown=appuser:nodejs /app/node_modules ./node_modules
+
+USER appuser
+WORKDIR /app/${SERVICE_PATH}
+EXPOSE ${PORT:-4000}
+# Use shell form so $SERVICE_PATH env var is expanded; path is relative to WORKDIR /app/$SERVICE_PATH
+CMD ["sh", "-c", "node dist/$SERVICE_PATH/src/index.js"]

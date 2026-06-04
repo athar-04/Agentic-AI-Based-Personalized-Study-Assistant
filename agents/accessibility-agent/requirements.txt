@@ -1,0 +1,9 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.10.0
+openai>=1.55.0
+python-dotenv>=1.0.1
+SpeechRecognition>=3.10.4
+pydub>=0.25.1
+gTTS>=2.5.3
+python-multipart>=0.0.17

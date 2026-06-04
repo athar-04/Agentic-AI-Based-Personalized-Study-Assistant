@@ -1,0 +1,425 @@
+// ============================================================
+// PRISMA SCHEMA — AGENTIC AI STUDY ASSISTANT
+// ============================================================
+
+generator client {
+  provider      = "prisma-client-js"
+  output        = "../../../node_modules/.prisma/client"
+  binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+
+enum UserRole {
+  STUDENT
+  ADMIN
+  INSTRUCTOR
+}
+
+enum PlanStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+enum SessionStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  MISSED
+  RESCHEDULED
+}
+
+enum QuizDifficulty {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  EXPERT
+}
+
+enum QuestionType {
+  MCQ
+  TRUE_FALSE
+  FILL_IN_BLANK
+  SHORT_ANSWER
+}
+
+enum RevisionStatus {
+  PENDING
+  COMPLETED
+  SKIPPED
+  OVERDUE
+}
+
+enum BloomLevel {
+  REMEMBER
+  UNDERSTAND
+  APPLY
+  ANALYZE
+  EVALUATE
+  CREATE
+}
+
+// ─────────────────────────────────────────────
+// USER
+// ─────────────────────────────────────────────
+
+model User {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  username          String    @unique
+  passwordHash      String?
+  firstName         String
+  lastName          String
+  avatarUrl         String?
+  role              UserRole  @default(STUDENT)
+  isEmailVerified   Boolean   @default(false)
+  isActive          Boolean   @default(true)
+  googleId          String?   @unique
+  lastLoginAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  preferences       UserPreferences?
+  refreshTokens     RefreshToken[]
+  studyPlans        StudyPlan[]
+  quizAttempts      QuizAttempt[]
+  revisionItems     RevisionItem[]
+  analytics         Analytics?
+  recommendations   Recommendation[]
+  notifications     Notification[]
+  documents         Document[]
+
+  @@map("users")
+  @@index([email])
+  @@index([googleId])
+}
+
+model UserPreferences {
+  id                    String   @id @default(uuid())
+  userId                String   @unique
+  theme                 String   @default("dark")
+  language              String   @default("en")
+  timezone              String   @default("UTC")
+  dailyStudyGoalMinutes Int      @default(60)
+  notificationsEnabled  Boolean  @default(true)
+  emailNotifications    Boolean  @default(true)
+  voiceEnabled          Boolean  @default(false)
+  highContrastMode      Boolean  @default(false)
+  dyslexiaFriendlyMode  Boolean  @default(false)
+  fontSize              String   @default("medium")
+  screenReaderMode      Boolean  @default(false)
+  simplifiedLanguage    Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_preferences")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  isRevoked Boolean  @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+  @@index([token])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────
+// STUDY PLANS & SESSIONS
+// ─────────────────────────────────────────────
+
+model StudyPlan {
+  id             String     @id @default(uuid())
+  userId         String
+  title          String
+  description    String?
+  subject        String
+  examDate       DateTime?
+  startDate      DateTime
+  endDate        DateTime?
+  status         PlanStatus @default(ACTIVE)
+  dailyGoalHours Float      @default(2.0)
+  weeklyGoalHours Float     @default(14.0)
+  totalTopics    Int        @default(0)
+  completedTopics Int       @default(0)
+  aiGenerated    Boolean    @default(false)
+  metadata       Json?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions StudySession[]
+  topics   Topic[]
+
+  @@map("study_plans")
+  @@index([userId])
+  @@index([status])
+}
+
+model Topic {
+  id           String     @id @default(uuid())
+  planId       String
+  title        String
+  description  String?
+  bloomLevel   BloomLevel @default(REMEMBER)
+  priority     Int        @default(1)
+  estimatedHours Float    @default(1.0)
+  isCompleted  Boolean    @default(false)
+  order        Int        @default(0)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  plan      StudyPlan      @relation(fields: [planId], references: [id], onDelete: Cascade)
+  sessions  StudySession[]
+  revisions RevisionItem[]
+
+  @@map("topics")
+  @@index([planId])
+}
+
+model StudySession {
+  id              String        @id @default(uuid())
+  planId          String
+  topicId         String?
+  userId          String
+  title           String
+  scheduledAt     DateTime
+  startedAt       DateTime?
+  completedAt     DateTime?
+  durationMinutes Int           @default(60)
+  actualMinutes   Int?
+  status          SessionStatus @default(SCHEDULED)
+  notes           String?
+  aiNotes         String?
+  focusScore      Float?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  plan  StudyPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  topic Topic?    @relation(fields: [topicId], references: [id])
+
+  @@map("study_sessions")
+  @@index([planId])
+  @@index([userId])
+  @@index([scheduledAt])
+}
+
+// ─────────────────────────────────────────────
+// QUIZZES
+// ─────────────────────────────────────────────
+
+model Quiz {
+  id           String         @id @default(uuid())
+  title        String
+  subject      String
+  description  String?
+  difficulty   QuizDifficulty @default(INTERMEDIATE)
+  timeLimit    Int?
+  totalMarks   Int            @default(0)
+  aiGenerated  Boolean        @default(true)
+  sourceDocId  String?
+  metadata     Json?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  questions Question[]
+  attempts  QuizAttempt[]
+
+  @@map("quizzes")
+}
+
+model Question {
+  id            String       @id @default(uuid())
+  quizId        String
+  type          QuestionType @default(MCQ)
+  bloomLevel    BloomLevel   @default(REMEMBER)
+  questionText  String
+  options       Json?
+  correctAnswer String
+  explanation   String?
+  marks         Int          @default(1)
+  difficulty    QuizDifficulty @default(INTERMEDIATE)
+  order         Int          @default(0)
+  createdAt     DateTime     @default(now())
+
+  quiz    Quiz              @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  answers QuestionResponse[]
+
+  @@map("questions")
+  @@index([quizId])
+}
+
+model QuizAttempt {
+  id           String   @id @default(uuid())
+  quizId       String
+  userId       String
+  score        Float    @default(0)
+  maxScore     Float    @default(0)
+  percentage   Float    @default(0)
+  timeTaken    Int?
+  completedAt  DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  quiz      Quiz               @relation(fields: [quizId], references: [id])
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  responses QuestionResponse[]
+
+  @@map("quiz_attempts")
+  @@index([userId])
+  @@index([quizId])
+}
+
+model QuestionResponse {
+  id           String   @id @default(uuid())
+  attemptId    String
+  questionId   String
+  userAnswer   String
+  isCorrect    Boolean  @default(false)
+  timeTaken    Int?
+  createdAt    DateTime @default(now())
+
+  attempt  QuizAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question Question    @relation(fields: [questionId], references: [id])
+
+  @@map("question_responses")
+  @@index([attemptId])
+}
+
+// ─────────────────────────────────────────────
+// REVISION
+// ─────────────────────────────────────────────
+
+model RevisionItem {
+  id              String         @id @default(uuid())
+  userId          String
+  topicId         String?
+  title           String
+  content         String?
+  nextRevisionAt  DateTime
+  lastRevisedAt   DateTime?
+  intervalDays    Int            @default(1)
+  repetitionCount Int            @default(0)
+  easeFactor      Float          @default(2.5)
+  status          RevisionStatus @default(PENDING)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic Topic? @relation(fields: [topicId], references: [id])
+
+  @@map("revision_items")
+  @@index([userId])
+  @@index([nextRevisionAt])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────
+// ANALYTICS
+// ─────────────────────────────────────────────
+
+model Analytics {
+  id                   String   @id @default(uuid())
+  userId               String   @unique
+  totalStudyMinutes    Int      @default(0)
+  totalSessions        Int      @default(0)
+  completedSessions    Int      @default(0)
+  totalQuizAttempts    Int      @default(0)
+  averageQuizScore     Float    @default(0)
+  currentStreak        Int      @default(0)
+  longestStreak        Int      @default(0)
+  examReadinessScore   Float    @default(0)
+  weakTopics           Json?
+  strongTopics         Json?
+  studyHeatmap         Json?
+  updatedAt            DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("analytics")
+}
+
+// ─────────────────────────────────────────────
+// RECOMMENDATIONS
+// ─────────────────────────────────────────────
+
+model Recommendation {
+  id          String   @id @default(uuid())
+  userId      String
+  type        String
+  title       String
+  description String
+  actionUrl   String?
+  metadata    Json?
+  isRead      Boolean  @default(false)
+  isDismissed Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("recommendations")
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────
+// DOCUMENTS (PDF uploads)
+// ─────────────────────────────────────────────
+
+model Document {
+  id           String   @id @default(uuid())
+  userId       String
+  filename     String
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  storagePath  String
+  isProcessed  Boolean  @default(false)
+  extractedText String?
+  pageCount    Int?
+  vectorized   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("documents")
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  body      String
+  isRead    Boolean  @default(false)
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+  @@index([userId])
+  @@index([isRead])
+}

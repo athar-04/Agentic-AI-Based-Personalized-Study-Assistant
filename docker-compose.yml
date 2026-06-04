@@ -1,0 +1,376 @@
+version: "3.9"
+
+networks:
+  agentic-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  mongo_data:
+  redis_data:
+  faiss_data:
+  uploads_data:
+
+services:
+  # ─────────────────────────────────────────────
+  # DATABASES
+  # ─────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: agentic_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agentic_ai_study
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_password_change_in_prod
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/init-scripts/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - agentic-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongo:
+    image: mongo:7.0
+    container_name: agentic_mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: mongo
+      MONGO_INITDB_ROOT_PASSWORD: mongo_password_change_in_prod
+      MONGO_INITDB_DATABASE: agentic_ai_logs
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "27017:27017"
+    networks:
+      - agentic-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: agentic_redis
+    restart: unless-stopped
+    command: redis-server --requirepass redis_password_change_in_prod --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - agentic-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis_password_change_in_prod", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────────
+  # NODE.JS SERVICES
+  # ─────────────────────────────────────────────
+  api-gateway:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.node
+      args:
+        SERVICE_PATH: apps/api-gateway
+    container_name: agentic_api_gateway
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 4000
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres_password_change_in_prod@postgres:5432/agentic_ai_study
+      REDIS_URL: redis://:redis_password_change_in_prod@redis:6379
+      USER_SERVICE_URL: http://user-service:4001
+      STUDY_SERVICE_URL: http://study-service:4002
+      ANALYTICS_SERVICE_URL: http://analytics-service:4003
+      AI_ORCHESTRATOR_URL: http://ai-orchestrator:8000
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - agentic-network
+
+  user-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.node
+      args:
+        SERVICE_PATH: apps/user-service
+    container_name: agentic_user_service
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 4001
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres_password_change_in_prod@postgres:5432/agentic_ai_study
+      REDIS_URL: redis://:redis_password_change_in_prod@redis:6379
+    ports:
+      - "4001:4001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - agentic-network
+
+  study-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.node
+      args:
+        SERVICE_PATH: apps/study-service
+    container_name: agentic_study_service
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 4002
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres_password_change_in_prod@postgres:5432/agentic_ai_study
+      REDIS_URL: redis://:redis_password_change_in_prod@redis:6379
+      AI_ORCHESTRATOR_URL: http://ai-orchestrator:8000
+    ports:
+      - "4002:4002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - agentic-network
+
+  analytics-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.node
+      args:
+        SERVICE_PATH: apps/analytics-service
+    container_name: agentic_analytics_service
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 4003
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres_password_change_in_prod@postgres:5432/agentic_ai_study
+      MONGODB_URL: mongodb://mongo:mongo_password_change_in_prod@mongo:27017/agentic_ai_logs?authSource=admin
+      REDIS_URL: redis://:redis_password_change_in_prod@redis:6379
+    ports:
+      - "4003:4003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - agentic-network
+
+  # ─────────────────────────────────────────────
+  # PYTHON AI SERVICES
+  # ─────────────────────────────────────────────
+  ai-orchestrator:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.python
+      args:
+        SERVICE_PATH: apps/ai-orchestrator
+    container_name: agentic_ai_orchestrator
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 8000
+      MONGODB_URL: mongodb://mongo:mongo_password_change_in_prod@mongo:27017/agentic_ai_logs?authSource=admin
+      REDIS_URL: redis://:redis_password_change_in_prod@redis:6379
+      PLANNER_AGENT_URL: http://planner-agent:8001
+      TUTOR_AGENT_URL: http://tutor-agent:8002
+      QUIZ_AGENT_URL: http://quiz-agent:8003
+      REVISION_AGENT_URL: http://revision-agent:8004
+      ANALYZER_AGENT_URL: http://analyzer-agent:8005
+      ACCESSIBILITY_AGENT_URL: http://accessibility-agent:8006
+    volumes:
+      - faiss_data:/app/data/faiss_index
+      - uploads_data:/app/uploads
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    networks:
+      - agentic-network
+
+  planner-agent:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.python
+      args:
+        SERVICE_PATH: agents/planner-agent
+    container_name: agentic_planner_agent
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 8001
+    ports:
+      - "8001:8001"
+    networks:
+      - agentic-network
+
+  tutor-agent:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.python
+      args:
+        SERVICE_PATH: agents/tutor-agent
+    container_name: agentic_tutor_agent
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 8002
+    volumes:
+      - faiss_data:/app/data/faiss_index
+      - uploads_data:/app/uploads
+    ports:
+      - "8002:8002"
+    networks:
+      - agentic-network
+
+  quiz-agent:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.python
+      args:
+        SERVICE_PATH: agents/quiz-agent
+    container_name: agentic_quiz_agent
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 8003
+    volumes:
+      - uploads_data:/app/uploads
+    ports:
+      - "8003:8003"
+    networks:
+      - agentic-network
+
+  revision-agent:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.python
+      args:
+        SERVICE_PATH: agents/revision-agent
+    container_name: agentic_revision_agent
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 8004
+    ports:
+      - "8004:8004"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - agentic-network
+
+  analyzer-agent:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.python
+      args:
+        SERVICE_PATH: agents/analyzer-agent
+    container_name: agentic_analyzer_agent
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 8005
+    ports:
+      - "8005:8005"
+    networks:
+      - agentic-network
+
+  accessibility-agent:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.python
+      args:
+        SERVICE_PATH: agents/accessibility-agent
+    container_name: agentic_accessibility_agent
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 8006
+    volumes:
+      - uploads_data:/app/uploads
+    ports:
+      - "8006:8006"
+    networks:
+      - agentic-network
+
+  # ─────────────────────────────────────────────
+  # FRONTEND
+  # ─────────────────────────────────────────────
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.web
+    container_name: agentic_web
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+      API_GATEWAY_URL: http://api-gateway:4000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api-gateway
+    networks:
+      - agentic-network
+  celery-worker:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.python
+      args:
+        SERVICE_PATH: agents/celery-worker
+    container_name: agentic_celery_worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
+    command: celery -A ${SERVICE_PATH}.worker worker --loglevel=info --concurrency=4
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - agentic-network
+
+  flower:
+    image: mher/flower
+    container_name: agentic_flower
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+    ports:
+      - "5555:5555"
+    depends_on:
+      celery-worker:
+        condition: service_started
+    networks:
+      - agentic-network
