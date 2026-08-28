@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
-import { createProxyMiddleware } from 'http-proxy-middleware';
+import { createProxyMiddleware, fixRequestBody } from 'http-proxy-middleware';
 import { v4 as uuidv4 } from 'uuid';
 
 import { rateLimiter } from './middleware/rateLimiter';
@@ -64,6 +64,7 @@ app.use('/api/v1/auth', createProxyMiddleware({
   changeOrigin: true,
   pathRewrite: { '^/api/v1/auth': '/auth' },
   on: {
+    proxyReq: fixRequestBody,
     error: (err, _req, res: any) => {
       logger.error('Proxy error (user-service):', err.message);
       res.status(503).json({ success: false, error: 'User service unavailable' });
@@ -81,6 +82,9 @@ app.use('/api/v1/users', createProxyMiddleware({
   target: process.env.USER_SERVICE_URL || 'http://localhost:4001',
   changeOrigin: true,
   pathRewrite: { '^/api/v1/users': '/users' },
+  on: {
+    proxyReq: fixRequestBody,
+  },
 }));
 
 // Study Plans
@@ -88,6 +92,9 @@ app.use('/api/v1/study', createProxyMiddleware({
   target: process.env.STUDY_SERVICE_URL || 'http://localhost:4002',
   changeOrigin: true,
   pathRewrite: { '^/api/v1/study': '/study' },
+  on: {
+    proxyReq: fixRequestBody,
+  },
 }));
 
 // Analytics
@@ -95,6 +102,9 @@ app.use('/api/v1/analytics', createProxyMiddleware({
   target: process.env.ANALYTICS_SERVICE_URL || 'http://localhost:4003',
   changeOrigin: true,
   pathRewrite: { '^/api/v1/analytics': '/analytics' },
+  on: {
+    proxyReq: fixRequestBody,
+  },
 }));
 
 // AI Orchestrator
@@ -103,6 +113,7 @@ app.use('/api/v1/ai', createProxyMiddleware({
   changeOrigin: true,
   pathRewrite: { '^/api/v1/ai': '/api' },
   on: {
+    proxyReq: fixRequestBody,
     error: (err, _req, res: any) => {
       logger.error('Proxy error (ai-orchestrator):', err.message);
       res.status(503).json({ success: false, error: 'AI service unavailable' });

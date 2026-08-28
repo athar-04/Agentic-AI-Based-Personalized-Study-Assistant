@@ -22,16 +22,16 @@ services:
     environment:
       POSTGRES_DB: agentic_ai_study
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres_password_change_in_prod
+      POSTGRES_PASSWORD: Agentic123
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infrastructure/init-scripts/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
-      - "5432:5432"
+      - "5433:5432"
     networks:
       - agentic-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -68,7 +68,7 @@ services:
     networks:
       - agentic-network
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "redis_password_change_in_prod", "ping"]
+      test: [ "CMD", "redis-cli", "-a", "redis_password_change_in_prod", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -116,7 +116,7 @@ services:
     environment:
       PORT: 4001
       NODE_ENV: production
-      DATABASE_URL: postgresql://postgres:postgres_password_change_in_prod@postgres:5432/agentic_ai_study
+      DATABASE_URL: postgresql://postgres:Agentic123@postgres:5432/agentic_ai_study
       REDIS_URL: redis://:redis_password_change_in_prod@redis:6379
     ports:
       - "4001:4001"
@@ -341,6 +341,7 @@ services:
       - api-gateway
     networks:
       - agentic-network
+
   celery-worker:
     build:
       context: .
