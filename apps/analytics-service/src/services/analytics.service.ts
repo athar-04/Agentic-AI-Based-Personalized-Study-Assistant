@@ -3,7 +3,7 @@ import { AuthorizationError } from '@agentic/shared';
 import axios from 'axios';
 
 export class AnalyticsService {
-  private assertAccess(targetId: string, requesterId: string) {
+  private assertAccess(targetId: string, requesterId: string | undefined) {
     if (targetId !== requesterId) throw new AuthorizationError();
   }
 
@@ -147,6 +147,13 @@ export class AnalyticsService {
     };
   }
 
+  /** HTTP entry point: users may only recalculate their own analytics. */
+  async recalculateForRequester(userId: string, requesterId: string) {
+    this.assertAccess(userId, requesterId);
+    await this.recalculateAnalytics(userId);
+  }
+
+  /** Internal (event-driven) recalculation; no access check. */
   async recalculateAnalytics(userId: string) {
     const [sessions, quizAttempts] = await Promise.all([
       prisma.studySession.findMany({ where: { userId } }),
@@ -201,7 +208,6 @@ export class AnalyticsService {
     let current = 0;
     let longest = 0;
     let temp = 0;
-    const today = new Date().toISOString().split('T')[0];
 
     for (let i = 0; i < sortedDays.length; i++) {
       const expected = new Date();

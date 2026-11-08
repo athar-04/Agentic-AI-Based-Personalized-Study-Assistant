@@ -5,6 +5,8 @@ export const studyPlanRouter = Router();
 const ctrl = new StudyPlanController();
 
 studyPlanRouter.post('/', ctrl.create);
+// The plan id was never used here; /generate-ai is the real route, the old path stays for compatibility.
+studyPlanRouter.post('/generate-ai', ctrl.generateWithAI);
 studyPlanRouter.get('/', ctrl.list);
 studyPlanRouter.get('/:id', ctrl.getById);
 studyPlanRouter.put('/:id', ctrl.update);

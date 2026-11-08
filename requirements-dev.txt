@@ -1,0 +1,4 @@
+# Python lint / type-check tooling (repo root .venv)
+ruff>=0.8.0
+mypy>=1.13.0
+pydantic>=2.10.0

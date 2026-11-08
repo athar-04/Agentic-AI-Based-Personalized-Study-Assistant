@@ -1,5 +1,6 @@
 # Node.js microservice Dockerfile (multi-stage, production-ready)
-FROM node:20-alpine AS base
+# Node 22 LTS: Node 20 reached end of life in April 2026 and gets no more security fixes.
+FROM node:22-alpine AS base
 RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 
@@ -7,7 +8,8 @@ WORKDIR /app
 FROM base AS deps
 COPY . .
 ARG SERVICE_PATH
-RUN npm install --workspace=${SERVICE_PATH} --include-workspace-root --legacy-peer-deps --no-audit --no-fund
+# ci, not install: exactly the versions in package-lock.json, or the build fails.
+RUN npm ci --workspace=${SERVICE_PATH} --include-workspace-root --no-audit --no-fund
 
 # ── Build ─────────────────────────────────────────────
 FROM base AS builder
@@ -15,7 +17,8 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ARG SERVICE_PATH
-RUN npx prisma@5.22.0 generate --schema=packages/database/prisma/schema.prisma
+# The project's own Prisma CLI, so the generated client always matches @prisma/client.
+RUN npx prisma generate --schema=packages/database/prisma/schema.prisma
 # Build internal workspace packages first (so @agentic/auth and @agentic/shared dist/ exists)
 RUN npm run build --workspace=packages/shared
 RUN npm run build --workspace=packages/auth

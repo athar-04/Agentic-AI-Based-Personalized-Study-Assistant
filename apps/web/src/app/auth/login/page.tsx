@@ -1,112 +1,134 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
-import { GraduationCap } from "lucide-react";
+import { Field, Input } from "@/components/ui/form";
+import { Alert, Spinner } from "@/components/ui/feedback";
+import { AuthCard, pendingEmail } from "@/components/auth-ui";
+import { useSession } from "@/components/session";
+import { ApiError, login, publicApi, safeNextPath } from "@/lib/api";
 
-export default function LoginPage() {
+const NOTICES: Record<string, string> = {
+  verified: "Your email is verified. Sign in to get started.",
+  reset: "Your password was changed. Sign in with the new one.",
+  signedOut: "You've been signed out.",
+};
+
+function LoginForm() {
   const router = useRouter();
+  const params = useSearchParams();
+  const { status } = useSession();
+  const next = safeNextPath(params.get("next"));
+  const notice = Object.keys(NOTICES).find((k) => params.get(k) === "1");
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState<ApiError | null>(null);
   const [loading, setLoading] = useState(false);
+  const [resendState, setResendState] = useState<"idle" | "sending" | "sent">("idle");
+  const emailRef = useRef<HTMLInputElement>(null);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  // Already signed in (e.g. back button after login): go straight on.
+  useEffect(() => {
+    if (status === "authenticated") router.replace(next);
+  }, [status, router, next]);
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
+    setError(null);
+    setResendState("idle");
     setLoading(true);
-
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/v1/auth/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok && data.success !== false) {
-        if (data.accessToken) {
-            localStorage.setItem("accessToken", data.accessToken);
-        }
-        router.push("/dashboard");
-      } else {
-        setError(data.error || data.message || "Invalid credentials");
-      }
-    } catch (err: any) {
-      setError(err.message || "Something went wrong. Please try again.");
+      await login(email.trim(), password);
+      pendingEmail.clear();
+      router.replace(next);
+    } catch (err) {
+      setError(err instanceof ApiError ? err : new ApiError("Something went wrong. Please try again.", 0));
+      emailRef.current?.focus();
     } finally {
       setLoading(false);
     }
   };
 
+  const resend = async () => {
+    setResendState("sending");
+    try {
+      await publicApi("POST", "/auth/resend-verification", { email: email.trim() });
+      setResendState("sent");
+    } catch (err) {
+      setError(err instanceof ApiError ? err : null);
+      setResendState("idle");
+    }
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md shadow-lg">
-        <CardHeader className="space-y-1 text-center">
-          <div className="flex justify-center mb-4">
-            <GraduationCap className="h-12 w-12 text-primary" />
-          </div>
-          <CardTitle className="text-2xl font-bold font-outfit">Welcome back</CardTitle>
-          <CardDescription>
-            Enter your email and password to log in to your account
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleLogin} className="space-y-4">
-            {error && (
-              <div className="p-3 rounded-md bg-destructive/15 text-destructive text-sm text-center font-medium">
-                {error}
-              </div>
-            )}
-            <div className="space-y-2">
-              <label className="text-sm font-medium leading-none" htmlFor="email">
-                Email
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                placeholder="m.athar@example.com"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium leading-none" htmlFor="password">
-                  Password
-                </label>
-              </div>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                required
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Logging in..." : "Log in"}
-            </Button>
-          </form>
-        </CardContent>
-        <CardFooter className="flex justify-center">
-          <p className="text-sm text-muted-foreground">
-            Don't have an account?{" "}
-            <Link href="/auth/register" className="text-primary hover:underline font-medium">
-              Sign up
-            </Link>
-          </p>
-        </CardFooter>
-      </Card>
-    </div>
+    <AuthCard
+      title="Welcome back"
+      description="Sign in to continue your study plan."
+      footer={
+        <p>
+          New here?{" "}
+          <Link href="/auth/register" className="font-medium text-primary underline-offset-4 hover:underline">
+            Create an account
+          </Link>
+        </p>
+      }
+    >
+      {notice && <Alert tone="success">{NOTICES[notice]}</Alert>}
+      {params.get("error") === "google" && <Alert tone="error">Google sign-in didn&apos;t complete. Please try again or use your email and password.</Alert>}
+
+      {error?.code === "EMAIL_NOT_VERIFIED" ? (
+        <Alert
+          tone="warning"
+          title="Verify your email first"
+          action={
+            resendState === "sent" ? (
+              <p className="font-medium">If the account needs it, a new link is on its way. Check your inbox.</p>
+            ) : (
+              <Button size="sm" variant="outline" onClick={() => void resend()} disabled={resendState === "sending"}>
+                {resendState === "sending" && <Spinner className="mr-2" />}
+                Send a new verification link
+              </Button>
+            )
+          }
+        >
+          We sent a link to your email when you signed up. Open it to activate your account.
+        </Alert>
+      ) : error ? (
+        <Alert tone="error">{error.message}</Alert>
+      ) : null}
+
+      <form onSubmit={(e) => void submit(e)} className="space-y-4">
+        <Field id="email" label="Email" required>
+          {(p) => (
+            <Input {...p} ref={emailRef} type="email" autoComplete="email" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          )}
+        </Field>
+        <Field id="password" label="Password" required>
+          {(p) => (
+            <Input {...p} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          )}
+        </Field>
+        <div className="flex justify-end">
+          <Link href="/auth/forgot-password" className="inline-flex min-h-11 items-center text-sm font-medium text-primary underline-offset-4 hover:underline">
+            Forgot password?
+          </Link>
+        </div>
+        <Button type="submit" className="w-full" disabled={loading}>
+          {loading && <Spinner className="mr-2" />}
+          {loading ? "Signing in…" : "Sign in"}
+        </Button>
+      </form>
+    </AuthCard>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }

@@ -51,7 +51,7 @@ export class AnalyticsController {
 
   recalculate = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      await svc.recalculateAnalytics(req.params.userId as string);
+      await svc.recalculateForRequester(req.params.userId as string, req.userId!);
       res.json(successResponse(null, 'Analytics recalculated'));
     } catch (e) { next(e); }
   };

@@ -12,26 +12,49 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+    "dev:local": "node scripts/dev/start.mjs",
+    "demo:local": "node scripts/dev/start.mjs --prod",
+    "db:local": "node scripts/dev/db.mjs",
+    "admin:bootstrap": "node scripts/dev/bootstrap-admin.mjs",
+    "smoke:local": "tsx --tsconfig apps/user-service/tsconfig.json scripts/dev/smoke.ts",
+    "ai:check": "node scripts/dev/ai-check.mjs",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "postinstall": "node scripts/postinstall.mjs",
     "clean": "turbo run clean && rm -rf node_modules",
     "db:migrate": "turbo run db:migrate",
     "db:generate": "turbo run db:generate",
     "db:studio": "cd packages/database && npx prisma studio",
-    "docker:up": "docker compose -f infrastructure/docker-compose.yml up -d",
-    "docker:down": "docker compose -f infrastructure/docker-compose.yml down",
-    "docker:build": "docker compose -f infrastructure/docker-compose.yml build",
-    "docker:logs": "docker compose -f infrastructure/docker-compose.yml logs -f"
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:build": "docker compose build",
+    "docker:logs": "docker compose logs -f",
+    "typecheck": "turbo run typecheck",
+    "lint:py": "ruff check apps/ai-orchestrator agents && ruff format --check apps/ai-orchestrator agents",
+    "typecheck:py": "python scripts/mypy_all.py"
   },
   "devDependencies": {
-    "turbo": "^2.3.3",
+    "@eslint/js": "^9.39.5",
+    "@next/eslint-plugin-next": "^15.0.3",
+    "embedded-postgres": "^17.10.0-beta.17",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^15.15.0",
     "prettier": "^3.3.3",
-    "typescript": "^5.6.3"
+    "turbo": "^2.3.3",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.71.1"
   },
   "engines": {
-    "node": ">=20.0.0",
+    "node": ">=22.0.0",
     "npm": ">=10.0.0"
   },
-  "packageManager": "npm@10.9.2"
+  "packageManager": "npm@10.9.2",
+  "overrides": {
+    "next": {
+      "postcss": "^8.5.29"
+    },
+    "qs": "6.16.1"
+  }
 }

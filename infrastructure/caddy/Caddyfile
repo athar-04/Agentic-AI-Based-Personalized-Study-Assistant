@@ -1,0 +1,30 @@
+# The only public entry point. SITE_ADDRESS is your domain (e.g. study.example.com), with its DNS
+# pointing at this server and ports 80 and 443 open: Caddy obtains and renews the HTTPS
+# certificate itself. The app refuses to run in production over plain HTTP, so there is no
+# HTTP-only mode; use a staging subdomain for trials.
+{$SITE_ADDRESS} {
+	# API calls go straight to the gateway: one hop fewer than through the web app, and Caddy sets
+	# X-Forwarded-For from the real connection (discarding anything the client sent), which the
+	# gateway's per-visitor rate limits rely on.
+	handle /api/v1/* {
+		reverse_proxy api-gateway:4000 {
+			# Pass the tutor's streamed answer through as it is written.
+			flush_interval -1
+			transport http {
+				# Shorter than the services' 35 s, so Caddy, not the service, closes idle connections.
+				keepalive 30s
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy web:3000 {
+			transport http {
+				keepalive 30s
+			}
+		}
+	}
+
+	# No access log on purpose: it would record full URLs, including one-time sign-in codes that
+	# the services redact from their own logs.
+}

@@ -1,0 +1,45 @@
+# Lint / type-check config for the Python services (apps/ai-orchestrator, agents/*).
+# Each service still installs its own runtime deps from its requirements.txt.
+# Dev tools: pip install -r requirements-dev.txt
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+extend-exclude = [".venv", "node_modules", "infrastructure"]
+
+[tool.ruff.lint]
+select = [
+  "F",     # pyflakes: undefined names, unused imports
+  "E", "W", # pycodestyle
+  "I",     # import sorting
+  "UP",    # pyupgrade
+  "B",     # bugbear: mutable defaults, loop-variable capture, etc.
+  "SIM",   # simplifications
+  "ASYNC", # blocking calls (sync I/O, sync HTTP) inside async def
+  "DTZ",   # naive datetimes (utcnow().timestamp() is interpreted as local time)
+  "S",     # bandit security checks
+  "PTH",   # prefer pathlib over string path handling
+  "BLE",   # blind `except Exception`
+  "RUF",
+]
+ignore = [
+  "E501",   # long prompt strings are fine; the formatter handles code
+  "RUF001", # unicode box-drawing chars in comments/prints
+  "RUF003",
+  "B008",   # FastAPI's File(...)/Form(...) defaults are idiomatic
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/test_*.py" = ["S101"]
+# load_dotenv() must run before importing modules that read env at import time.
+"apps/ai-orchestrator/main.py" = ["E402"]
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
+# Every service has its own top-level `main.py`; check them as separate modules.
+explicit_package_bases = true
+namespace_packages = true

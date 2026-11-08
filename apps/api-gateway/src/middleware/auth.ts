@@ -20,10 +20,12 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     req.headers['x-request-id'] = req.requestId;
 
     next();
-  } catch (error: any) {
+  } catch {
+    // Fixed message: verification errors must not describe why a token was rejected.
     res.status(401).json({
       success: false,
-      error: error.message || 'Invalid or expired token',
+      error: 'Invalid or expired token',
+      code: 'UNAUTHENTICATED',
       timestamp: new Date().toISOString(),
     });
   }

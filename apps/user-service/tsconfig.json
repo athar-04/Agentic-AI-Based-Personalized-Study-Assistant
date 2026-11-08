@@ -16,6 +16,6 @@
       "@agentic/auth": ["../../packages/auth/src"]
     }
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "scripts/**/*", "test/**/*"],
   "exclude": ["node_modules", "dist"]
 }

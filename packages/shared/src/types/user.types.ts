@@ -9,6 +9,7 @@ export interface UserDto {
   avatarUrl?: string;
   role: UserRole;
   isEmailVerified: boolean;
+  isActive?: boolean;
   createdAt: string;
 }
 
@@ -45,7 +46,16 @@ export interface AuthTokensDto {
   expiresIn: number;
 }
 
+/** Login response body. The refresh token is never in the body: it is set as an HttpOnly cookie. */
 export interface AuthResponseDto {
   user: UserDto;
-  tokens: AuthTokensDto;
+  accessToken: string;
+  expiresIn: number;
+  scope: 'user' | 'admin';
+}
+
+/** Signup never returns a session; the account must be verified first. */
+export interface RegisterResponseDto {
+  verificationRequired: true;
+  email: string;
 }

@@ -1,0 +1,36 @@
+node_modules
+**/node_modules
+.next
+**/.next
+dist
+**/dist
+.git
+.env
+.env.local
+.env.*.local
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+.vscode
+infrastructure/data
+infrastructure/uploads
+data
+uploads
+
+# Local-only state: the dev stack's database, generated secrets and the AI key (.local/ai.env).
+# None of it may reach a build context, let alone an image layer.
+.local
+**/.local
+# Tool caches and reports
+coverage
+**/coverage
+.turbo
+**/.turbo
+*.tsbuildinfo
+**/__pycache__
+**/.pytest_cache
+**/.venv
+playwright-report
+.playwright-cli

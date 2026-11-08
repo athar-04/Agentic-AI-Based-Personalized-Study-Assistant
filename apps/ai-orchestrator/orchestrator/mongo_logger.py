@@ -1,7 +1,9 @@
 """MongoDB interaction logger for all AI agent conversations"""
+
 import os
-from datetime import datetime
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
+
 import motor.motor_asyncio
 
 
@@ -36,7 +38,7 @@ class MongoLogger:
             "agentUsed": agentUsed,
             "payload": payload,
             "result": result,
-            "timestamp": datetime.utcnow(),
+            "timestamp": datetime.now(UTC),
         }
         try:
             await self.db["interaction_logs"].insert_one(doc)
@@ -52,10 +54,12 @@ class MongoLogger:
         return await cursor.to_list(length=limit)
 
     async def save_chat_message(self, userId: str, sessionId: str, role: str, content: str):
-        await self.db["chat_history"].insert_one({
-            "userId": userId,
-            "sessionId": sessionId,
-            "role": role,
-            "content": content,
-            "timestamp": datetime.utcnow(),
-        })
+        await self.db["chat_history"].insert_one(
+            {
+                "userId": userId,
+                "sessionId": sessionId,
+                "role": role,
+                "content": content,
+                "timestamp": datetime.now(UTC),
+            }
+        )

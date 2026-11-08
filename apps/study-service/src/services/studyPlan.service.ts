@@ -1,16 +1,35 @@
 import { prisma } from '../lib/prisma';
 import { deleteCache, getCache, setCache } from '../lib/redis';
-import { NotFoundError, AuthorizationError, CreateStudyPlanDto } from '@agentic/shared';
+import { NotFoundError, AuthorizationError, ValidationError, ServiceUnavailableError, studyPlanSchema } from '@agentic/shared';
 import { REDIS_KEYS } from '@agentic/shared';
 import axios from 'axios';
+import { aiConfigured } from '../lib/ai';
+import { AiService } from './ai.service';
+
+interface TopicInput {
+  title: string;
+  description?: string;
+  bloomLevel?: string;
+  estimatedHours?: number;
+  priority?: number;
+}
+
+const BLOOM_LEVELS = new Set(['REMEMBER', 'UNDERSTAND', 'APPLY', 'ANALYZE', 'EVALUATE', 'CREATE']);
 
 export class StudyPlanService {
-  async createPlan(userId: string, data: CreateStudyPlanDto) {
-    const { topics: topicsData, ...planData } = data as any;
+  async createPlan(userId: string, input: unknown, opts: { topics?: TopicInput[]; aiGenerated?: boolean } = {}) {
+    // Validate and whitelist: raw bodies must never be spread into Prisma.
+    const parsed = studyPlanSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new ValidationError(parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
+    }
+    const planData = parsed.data;
+    const topicsData = (opts.topics ?? []).filter((t) => typeof t?.title === 'string' && t.title.trim());
 
     const plan = await prisma.studyPlan.create({
       data: {
         ...planData,
+        aiGenerated: opts.aiGenerated ?? false,
         userId,
         totalTopics: topicsData?.length ?? 0,
         topics: topicsData?.length
@@ -18,7 +37,7 @@ export class StudyPlanService {
               create: topicsData.map((t: any, i: number) => ({
                 title: t.title,
                 description: t.description,
-                bloomLevel: t.bloomLevel ?? 'REMEMBER',
+                bloomLevel: (t.bloomLevel && BLOOM_LEVELS.has(t.bloomLevel) ? t.bloomLevel : 'REMEMBER'),
                 estimatedHours: t.estimatedHours ?? 1,
                 priority: t.priority ?? i + 1,
                 order: i,
@@ -29,7 +48,6 @@ export class StudyPlanService {
       include: { topics: true, sessions: { take: 5, orderBy: { scheduledAt: 'asc' } } },
     });
 
-    await deleteCache(REDIS_KEYS.PLAN_CACHE(plan.id));
     return this.formatPlan(plan);
   }
 
@@ -49,12 +67,16 @@ export class StudyPlanService {
       prisma.studyPlan.count({ where }),
     ]);
 
-    return { plans: plans.map(this.formatPlan), total };
+    return { plans: plans.map((x) => this.formatPlan(x)), total };
   }
 
   async getPlanById(planId: string, userId: string) {
     const cached = await getCache(REDIS_KEYS.PLAN_CACHE(planId));
-    if (cached) return cached;
+    if (cached) {
+      // The cache is keyed by plan only, so ownership must still be checked on a hit.
+      if (cached.userId !== userId) throw new AuthorizationError();
+      return cached;
+    }
 
     const plan = await prisma.studyPlan.findUnique({
       where: { id: planId },
@@ -99,7 +121,7 @@ export class StudyPlanService {
   async updateStatus(planId: string, userId: string, status: string) {
     await this.verifyOwnership(planId, userId);
     const validStatuses = ['ACTIVE', 'PAUSED', 'COMPLETED', 'ARCHIVED'];
-    if (!validStatuses.includes(status)) throw new Error('Invalid status');
+    if (!validStatuses.includes(status)) throw new ValidationError('Invalid status');
 
     const plan = await prisma.studyPlan.update({
       where: { id: planId },
@@ -110,31 +132,48 @@ export class StudyPlanService {
     return this.formatPlan(plan);
   }
 
-  async generateAIPlan(userId: string, params: any) {
+  async generateAIPlan(userId: string, params: any, authorization?: string) {
     // Call AI Orchestrator planner agent
     const aiUrl = process.env.AI_ORCHESTRATOR_URL || 'http://localhost:8000';
-    let aiTopics: any[] = [];
+    if (typeof params?.subject !== 'string' || !params.subject.trim()) {
+      throw new ValidationError('subject is required');
+    }
+    let aiTopics: TopicInput[] = [];
 
-    try {
+    // A directly configured AI provider (AI_BASE_URL etc.) takes precedence over the orchestrator.
+    if (aiConfigured()) {
+      aiTopics = await new AiService().draftPlanTopics(params.subject, params.currentLevel);
+    } else try {
+      // The orchestrator authenticates the student from their own bearer token.
       const response = await axios.post(`${aiUrl}/api/plan/generate`, {
-        userId,
         subject: params.subject,
         examDate: params.examDate,
         dailyHours: params.dailyGoalHours ?? 2,
         currentLevel: params.currentLevel ?? 'beginner',
-      }, { timeout: 30000 });
+      }, { timeout: 90000, headers: authorization ? { Authorization: authorization } : {} });
 
-      aiTopics = response.data?.topics ?? [];
+      // Orchestrator envelope: { success, data: { topics, schedule, ... } }
+      const topics = response.data?.data?.topics;
+      aiTopics = Array.isArray(topics) ? topics : [];
     } catch {
-      // Fallback: create plan without AI topics
       aiTopics = [];
     }
+    // Never save an empty plan labelled AI-generated: that would present a failure as an AI result.
+    if (!aiTopics.length) throw new ServiceUnavailableError('AI planner');
 
-    return this.createPlan(userId, {
-      ...params,
-      aiGenerated: true,
-      topics: aiTopics,
-    });
+    return this.createPlan(
+      userId,
+      {
+        title: params.title ?? `${params.subject} study plan`,
+        subject: params.subject,
+        description: params.description,
+        examDate: params.examDate,
+        startDate: params.startDate ?? new Date().toISOString(),
+        endDate: params.endDate,
+        dailyGoalHours: params.dailyGoalHours,
+      },
+      { topics: aiTopics, aiGenerated: true },
+    );
   }
 
   async getPlanProgress(planId: string, userId: string) {

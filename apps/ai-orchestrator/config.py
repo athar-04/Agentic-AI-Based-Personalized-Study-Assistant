@@ -1,10 +1,15 @@
 """Configuration settings for AI Orchestrator"""
-from pydantic_settings import BaseSettings
-from typing import List
+
+from typing import Annotated
+
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, NoDecode
 
 
 class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
+    # Must match the Node services' JWT_SECRET; requests are rejected while it is empty.
+    JWT_SECRET: str = ""
     OPENAI_MODEL: str = "gpt-4o"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-ada-002"
 
@@ -12,7 +17,14 @@ class Settings(BaseSettings):
     MONGODB_URL: str = "mongodb://localhost:27017/agentic_ai_logs"
     MONGO_DB: str = "agentic_ai_logs"
 
-    ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:4000"]
+    ALLOWED_ORIGINS: Annotated[list[str], NoDecode] = ["http://localhost:3000", "http://localhost:4000"]
+
+    @field_validator("ALLOWED_ORIGINS", mode="before")
+    @classmethod
+    def parse_allowed_origins(cls, value):
+        if isinstance(value, str):
+            return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
 
     PLANNER_AGENT_URL: str = "http://localhost:8001"
     TUTOR_AGENT_URL: str = "http://localhost:8002"
@@ -24,5 +36,6 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         extra = "ignore"
+
 
 settings = Settings()

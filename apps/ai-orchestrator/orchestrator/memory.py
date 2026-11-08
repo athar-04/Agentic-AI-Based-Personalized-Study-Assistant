@@ -1,7 +1,9 @@
 """Redis-backed memory manager for AI context"""
+
 import json
 import os
-from typing import Any, Dict
+from typing import Any
+
 import redis.asyncio as aioredis
 
 
@@ -14,7 +16,7 @@ class MemoryManager:
         )
         self.ttl = 86400  # 24 hours
 
-    async def get_context(self, user_id: str) -> Dict[str, Any]:
+    async def get_context(self, user_id: str) -> dict[str, Any]:
         key = f"ai:context:{user_id}"
         try:
             data = await self.redis.get(key)
@@ -22,7 +24,7 @@ class MemoryManager:
         except Exception:
             return {}
 
-    async def update_context(self, user_id: str, update: Dict[str, Any]) -> None:
+    async def update_context(self, user_id: str, update: dict[str, Any]) -> None:
         if not update:
             return
         key = f"ai:context:{user_id}"

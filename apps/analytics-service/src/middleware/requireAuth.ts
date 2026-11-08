@@ -1,15 +1,23 @@
 import { Request, Response, NextFunction } from 'express';
-import { verifyAccessToken } from '@agentic/auth';
+import { verifyAccessToken, extractBearerToken } from '@agentic/auth';
 
-export const requireAuth = (req: any, res: Response, next: NextFunction) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ error: 'No token provided' });
-  const token = authHeader.split(' ')[1];
+/**
+ * Always verifies the bearer JWT. The gateway's x-user-* headers are deliberately ignored:
+ * this port is reachable directly, so those headers are attacker-controlled.
+ */
+export function requireAuth(req: Request, res: Response, next: NextFunction): void {
+  const token = extractBearerToken(req.headers.authorization);
+  if (!token) {
+    res.status(401).json({ success: false, error: 'Authentication required', timestamp: new Date().toISOString() });
+    return;
+  }
+
   try {
     const payload = verifyAccessToken(token);
-    req.user = payload;
+    req.userId = payload.userId;
+    req.userRole = payload.role;
     next();
-  } catch (err) {
-    res.status(401).json({ error: 'Invalid token' });
+  } catch {
+    res.status(401).json({ success: false, error: 'Invalid or expired token', timestamp: new Date().toISOString() });
   }
-};
+}

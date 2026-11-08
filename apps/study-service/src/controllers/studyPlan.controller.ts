@@ -43,7 +43,7 @@ export class StudyPlanController {
 
   generateWithAI = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const plan = await svc.generateAIPlan(req.userId!, req.body);
+      const plan = await svc.generateAIPlan(req.userId!, req.body, req.headers.authorization);
       res.status(201).json(successResponse(plan, 'AI study plan generated'));
     } catch (e) { next(e); }
   };

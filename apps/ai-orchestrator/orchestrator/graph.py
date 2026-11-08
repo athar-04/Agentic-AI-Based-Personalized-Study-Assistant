@@ -1,21 +1,23 @@
 """LangGraph orchestrator graph — routes tasks to the correct agent"""
-from typing import TypedDict, Any, Dict, Optional
-from langgraph.graph import StateGraph, END
-import httpx
+
 import os
+from typing import Any, TypedDict
+
+import httpx
+from langgraph.graph import END, StateGraph
 
 
 class OrchestratorState(TypedDict):
     userId: str
     task: str
-    payload: Dict[str, Any]
-    context: Dict[str, Any]
+    payload: dict[str, Any]
+    context: dict[str, Any]
     sessionId: str
-    output: Optional[Any]
-    agentUsed: Optional[str]
-    tokensUsed: Optional[int]
-    contextUpdate: Optional[Dict[str, Any]]
-    error: Optional[str]
+    output: Any | None
+    agentUsed: str | None
+    tokensUsed: int | None
+    contextUpdate: dict[str, Any] | None
+    error: str | None
 
 
 AGENT_URLS = {
@@ -32,7 +34,7 @@ TASK_ENDPOINTS = {
     "tutor": "/chat",
     "quiz": "/generate",
     "revision": "/schedule",
-    "analyze": "/performance",
+    "analyze": "/analyze/performance",
     "voice": "/transcribe",
 }
 
@@ -44,7 +46,7 @@ async def route_to_agent(state: OrchestratorState) -> OrchestratorState:
     endpoint = TASK_ENDPOINTS.get(task, "/")
 
     if not agent_url:
-        return {**state, "error": f"Unknown task: {task}", "output": None}
+        return {**state, "error": f"Unknown task: {task}", "output": None, "agentUsed": "none"}
 
     payload = {
         **state["payload"],
@@ -54,10 +56,17 @@ async def route_to_agent(state: OrchestratorState) -> OrchestratorState:
     }
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=float(os.getenv("AGENT_TIMEOUT_SECONDS", "180"))) as client:
             response = await client.post(f"{agent_url}{endpoint}", json=payload)
             response.raise_for_status()
             data = response.json()
+            if isinstance(data, dict) and data.get("success") is False:
+                return {
+                    **state,
+                    "error": data.get("error") or f"{task} agent failed",
+                    "output": None,
+                    "agentUsed": task,
+                }
             return {
                 **state,
                 "output": data.get("data") or data,
@@ -66,9 +75,14 @@ async def route_to_agent(state: OrchestratorState) -> OrchestratorState:
                 "contextUpdate": data.get("contextUpdate", {}),
             }
     except httpx.HTTPStatusError as e:
-        return {**state, "error": str(e), "output": {"error": "Agent returned an error"}, "agentUsed": task}
-    except Exception as e:
-        return {**state, "error": str(e), "output": {"error": "Agent unavailable"}, "agentUsed": task}
+        return {
+            **state,
+            "error": f"{task} agent returned HTTP {e.response.status_code}",
+            "output": None,
+            "agentUsed": task,
+        }
+    except (httpx.HTTPError, ValueError) as e:  # connection/timeout errors, or a non-JSON body
+        return {**state, "error": f"{task} agent unavailable: {e}", "output": None, "agentUsed": task}
 
 
 def should_retry(state: OrchestratorState) -> str:

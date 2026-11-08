@@ -13,8 +13,7 @@ out/
 
 # Environment variables
 .env
-.env.local
-.env.*.local
+.env.*
 !.env.example
 
 # Python
@@ -56,8 +55,6 @@ lerna-debug.log*
 *.sw?
 Thumbs.db
 
-# Docker
-.dockerignore
 
 # Database
 *.sqlite
@@ -83,3 +80,16 @@ coverage/
 
 # Turborepo
 .turbo
+
+# Local disposable dev data (embedded Postgres, captured dev email) and uploads
+.local/
+uploads/
+
+# Playwright
+test-results/
+playwright-report/
+.playwright-cli/
+
+# AI coding-assistant files: local only, not part of the project
+CLAUDE.md
+.claude/

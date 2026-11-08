@@ -82,6 +82,7 @@ model User {
   avatarUrl         String?
   role              UserRole  @default(STUDENT)
   isEmailVerified   Boolean   @default(false)
+  emailVerifiedAt   DateTime?
   isActive          Boolean   @default(true)
   googleId          String?   @unique
   lastLoginAt       DateTime?
@@ -98,6 +99,7 @@ model User {
   recommendations   Recommendation[]
   notifications     Notification[]
   documents         Document[]
+  emailTokens       EmailToken[]
 
   @@map("users")
   @@index([email])
@@ -140,6 +142,49 @@ model RefreshToken {
   @@map("refresh_tokens")
   @@index([token])
   @@index([userId])
+}
+
+// Single-use email links (signup verification, password reset).
+// Only a SHA-256 of the token is stored; the raw token exists only in the email.
+enum EmailTokenPurpose {
+  VERIFY_EMAIL
+  RESET_PASSWORD
+}
+
+model EmailToken {
+  id        String            @id @default(uuid())
+  userId    String
+  tokenHash String            @unique
+  purpose   EmailTokenPurpose
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime          @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("email_tokens")
+  @@index([userId, purpose, createdAt])
+}
+
+// ─────────────────────────────────────────────
+// ADMIN AUDIT
+// ─────────────────────────────────────────────
+
+// Deliberately minimal: who did what to whom, and only the changed fields
+// (role / isActive). No secrets, no study content. actorId/targetUserId are
+// plain columns, not foreign keys, so the trail survives account deletion.
+// actorId is null for the local bootstrap CLI.
+model AdminAuditLog {
+  id           String   @id @default(uuid())
+  actorId      String?
+  action       String
+  targetUserId String?
+  changes      Json?
+  createdAt    DateTime @default(now())
+
+  @@map("admin_audit_logs")
+  @@index([createdAt])
+  @@index([targetUserId])
 }
 
 // ─────────────────────────────────────────────

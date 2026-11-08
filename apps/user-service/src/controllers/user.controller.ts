@@ -1,8 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import { UserService } from '../services/user.service';
-import { successResponse, paginatedResponse } from '@agentic/shared';
+import { AdminService } from '../services/admin.service';
+import { successResponse, paginatedResponse, adminUserQuerySchema, ValidationError } from '@agentic/shared';
 
 const userService = new UserService();
+const adminService = new AdminService();
 
 export class UserController {
   getMe = async (req: Request, res: Response, next: NextFunction) => {
@@ -28,7 +30,11 @@ export class UserController {
 
   updateAvatar = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const user = await userService.updateAvatar(req.userId!, req.body.avatarUrl);
+      const avatarUrl = req.body?.avatarUrl;
+      if (typeof avatarUrl !== 'string' || !/^https:\/\/[^\s]{1,500}$/.test(avatarUrl)) {
+        throw new ValidationError('avatarUrl must be an https URL');
+      }
+      const user = await userService.updateAvatar(req.userId!, avatarUrl);
       res.json(successResponse(user, 'Avatar updated'));
     } catch (error) { next(error); }
   };
@@ -49,9 +55,10 @@ export class UserController {
 
   getNotifications = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { page = 1, limit = 20 } = req.query as any;
-      const { notifications, total } = await userService.getNotifications(req.userId!, +page, +limit);
-      res.json(paginatedResponse(notifications, total, +page, +limit));
+      const page = Math.max(1, Math.floor(Number(req.query.page) || 1));
+      const limit = Math.min(100, Math.max(1, Math.floor(Number(req.query.limit) || 20)));
+      const { notifications, total } = await userService.getNotifications(req.userId!, page, limit);
+      res.json(paginatedResponse(notifications, total, page, limit));
     } catch (error) { next(error); }
   };
 
@@ -64,29 +71,29 @@ export class UserController {
 
   listUsers = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { page = 1, limit = 20, search } = req.query as any;
-      const { users, total } = await userService.listUsers(+page, +limit, search);
-      res.json(paginatedResponse(users, total, +page, +limit));
+      const parsed = adminUserQuerySchema.safeParse(req.query);
+      if (!parsed.success) throw new ValidationError('Invalid query parameters');
+      const { users, total } = await adminService.listUsers(parsed.data);
+      res.json(paginatedResponse(users, total, parsed.data.page, parsed.data.limit));
     } catch (error) { next(error); }
   };
 
   getUserById = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const user = await userService.getUserById(req.params.id as string);
-      res.json(successResponse(user));
+      res.json(successResponse(await adminService.getUser(req.params.id as string)));
     } catch (error) { next(error); }
   };
 
   updateUserRole = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const user = await userService.updateUserRole(req.params.id as string, req.body.role);
+      const user = await adminService.changeRole(req.userId!, req.params.id as string, req.body.role);
       res.json(successResponse(user, 'Role updated'));
     } catch (error) { next(error); }
   };
 
   deleteUser = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      await userService.deleteUser(req.params.id as string);
+      await adminService.deleteUser(req.userId!, req.params.id as string);
       res.json(successResponse(null, 'User deleted'));
     } catch (error) { next(error); }
   };

@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma';
 import { getCache, setCache, deleteCache } from '../lib/redis';
-import { NotFoundError, AuthorizationError } from '@agentic/shared';
+import { NotFoundError, AuthorizationError, ConflictError } from '@agentic/shared';
 import { REDIS_KEYS } from '@agentic/shared';
 
 export class UserService {
@@ -31,7 +31,7 @@ export class UserService {
       const exists = await prisma.user.findFirst({
         where: { username: updateData.username, NOT: { id: userId } },
       });
-      if (exists) throw new Error('Username already taken');
+      if (exists) throw new ConflictError('Username already taken');
     }
 
     const user = await prisma.user.update({
@@ -54,15 +54,16 @@ export class UserService {
   }
 
   async deactivateUser(userId: string) {
-    await prisma.user.update({
-      where: { id: userId },
-      data: { isActive: false },
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM users WHERE role = 'ADMIN' FOR UPDATE`;
+      const me = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { role: true } });
+      if (me.role === 'ADMIN') {
+        const others = await tx.user.count({ where: { role: 'ADMIN', isActive: true, NOT: { id: userId } } });
+        if (others === 0) throw new ConflictError('You are the last active admin. Promote someone else first.', 'LAST_ADMIN');
+      }
+      await tx.user.update({ where: { id: userId }, data: { isActive: false } });
+      await tx.refreshToken.updateMany({ where: { userId, isRevoked: false }, data: { isRevoked: true } });
     });
-    await deleteCache(REDIS_KEYS.USER_CACHE(userId));
-  }
-
-  async deleteUser(userId: string) {
-    await prisma.user.delete({ where: { id: userId } });
     await deleteCache(REDIS_KEYS.USER_CACHE(userId));
   }
 
@@ -89,37 +90,6 @@ export class UserService {
       update: updateData,
       create: { userId, ...updateData },
     });
-  }
-
-  async updateUserRole(userId: string, role: string) {
-    const validRoles = ['STUDENT', 'ADMIN', 'INSTRUCTOR'];
-    if (!validRoles.includes(role)) throw new Error('Invalid role');
-
-    const user = await prisma.user.update({
-      where: { id: userId },
-      data: { role: role as any },
-    });
-    await deleteCache(REDIS_KEYS.USER_CACHE(userId));
-    return this.sanitizeUser(user);
-  }
-
-  async listUsers(page: number, limit: number, search?: string) {
-    const skip = (page - 1) * limit;
-    const where = search ? {
-      OR: [
-        { email: { contains: search, mode: 'insensitive' as const } },
-        { firstName: { contains: search, mode: 'insensitive' as const } },
-        { lastName: { contains: search, mode: 'insensitive' as const } },
-        { username: { contains: search, mode: 'insensitive' as const } },
-      ],
-    } : {};
-
-    const [users, total] = await Promise.all([
-      prisma.user.findMany({ where, skip, take: limit, orderBy: { createdAt: 'desc' } }),
-      prisma.user.count({ where }),
-    ]);
-
-    return { users: users.map(this.sanitizeUser), total };
   }
 
   async getNotifications(userId: string, page: number, limit: number) {
