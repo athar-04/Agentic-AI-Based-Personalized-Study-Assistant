@@ -1,4 +1,4 @@
-# Agentic Study
+# Agentic AI Based Personalized Study Assistant
 
 A study assistant for students: break a subject into topics, schedule sessions, practise with
 quizzes, ask an AI tutor, and get reviews back right before you'd forget. Admins have a separate
